@@ -146,23 +146,19 @@ class DoctorController extends Controller
         // Apply filtering based on the tab selected
         switch ($filter) {
             case 'needs_attention':
-                // Show examinations that need doctor's attention (Pending status from pathologist)
-                $query->whereIn('status', ['Pending', 'pending', 'collection_completed']);
+                // Show examinations that need doctor's attention (including all pending/draft statuses)
+                $query->whereIn('status', ['Pending', 'pending', 'collection_completed', 'draft', 'Draft', 'created', 'Created', 'Approved']);
                 break;
                 
             case 'submitted':
                 // Show examinations that have been submitted to admin by doctor
-                $query->whereIn('status', ['sent_to_company', 'Approved', 'sent_to_both']);
+                $query->whereIn('status', ['sent_to_company', 'sent_to_both']);
                 break;
                 
             case 'all':
-                // Show all examinations (both pending review and submitted)
-                $query->whereIn('status', ['Pending', 'pending', 'completed', 'Approved', 'collection_completed', 'sent_to_company', 'sent_to_both']);
-                break;
-                
             default:
-                // Default to needs_attention
-                $query->whereIn('status', ['Pending', 'pending', 'collection_completed']);
+                // Show all examinations - remove status filtering to show everything
+                // Don't filter by status at all to show all records
                 break;
         }
         
@@ -173,9 +169,9 @@ class DoctorController extends Controller
             ->get();
         
         // Get accurate counts for each tab
-        $needsAttentionCount = \App\Models\PreEmploymentExamination::whereIn('status', ['Pending', 'pending', 'collection_completed'])->count();
-        $submittedCount = \App\Models\PreEmploymentExamination::whereIn('status', ['sent_to_company', 'Approved', 'sent_to_both'])->count();
-        $totalCount = \App\Models\PreEmploymentExamination::whereIn('status', ['Pending', 'pending', 'completed', 'Approved', 'collection_completed', 'sent_to_company', 'sent_to_both'])->count();
+        $needsAttentionCount = \App\Models\PreEmploymentExamination::whereIn('status', ['Pending', 'pending', 'collection_completed', 'draft', 'Draft', 'created', 'Created', 'Approved'])->count();
+        $submittedCount = \App\Models\PreEmploymentExamination::whereIn('status', ['sent_to_company', 'sent_to_both'])->count();
+        $totalCount = \App\Models\PreEmploymentExamination::count(); // Count all records regardless of status
             
         // Log the count and statuses for debugging
         \Log::info('Pre-employment examinations count: ' . $preEmploymentExaminations->count());

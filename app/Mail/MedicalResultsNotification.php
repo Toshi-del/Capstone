@@ -7,7 +7,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Queue\SerializesModels;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class MedicalResultsNotification extends Mailable
 {
@@ -66,6 +68,50 @@ class MedicalResultsNotification extends Mailable
      */
     public function attachments(): array
     {
-        return [];
+        try {
+            // Generate PDF based on examination type
+            $pdfView = $this->examinationType === 'pre_employment' 
+                ? 'pdf.pre-employment-results' 
+                : 'pdf.annual-physical-results';
+            
+            // Ensure examination has all necessary relationships loaded
+            if ($this->examinationType === 'pre_employment') {
+                $this->examination->load(['drugTestResults', 'preEmploymentRecord.medicalTest']);
+            } else {
+                $this->examination->load(['drugTestResults', 'patient.appointment.medicalTest']);
+            }
+            
+            $pdf = Pdf::loadView($pdfView, [
+                'examination' => $this->examination
+            ]);
+            
+            // Set PDF options for better formatting
+            $pdf->setPaper('A4', 'portrait');
+            $pdf->setOptions([
+                'isHtml5ParserEnabled' => true,
+                'isPhpEnabled' => true,
+                'defaultFont' => 'Arial'
+            ]);
+            
+            // Generate filename
+            $filename = $this->examinationType === 'pre_employment' 
+                ? 'Pre-Employment_Medical_Results_' . $this->examination->id . '.pdf'
+                : 'Annual_Physical_Results_' . $this->examination->id . '.pdf';
+            
+            return [
+                Attachment::fromData(fn () => $pdf->output(), $filename)
+                    ->withMime('application/pdf')
+            ];
+        } catch (\Exception $e) {
+            // Log error but don't fail the email
+            \Log::error('Failed to generate PDF attachment for medical results email: ' . $e->getMessage(), [
+                'examination_id' => $this->examination->id,
+                'examination_type' => $this->examinationType,
+                'patient_email' => $this->patientEmail
+            ]);
+            
+            // Return empty array if PDF generation fails
+            return [];
+        }
     }
 }

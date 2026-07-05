@@ -34,9 +34,13 @@ class TopCategoriesExport
                     ->where('created_at', '>=', $since)
                     ->count();
                 
-                // Appointment patient count
-                $appointments = Appointment::where('medical_test_categories_id', $cat->id)
+                // Appointment patient count (only approved)
+                $appointments = Appointment::where(function($query) use ($cat) {
+                        $query->where('medical_test_categories_id', $cat->id)
+                              ->orWhereRaw('JSON_CONTAINS(medical_test_categories_id, ?)', [json_encode($cat->id)]);
+                    })
                     ->where('created_at', '>=', $since)
+                    ->where('status', 'approved')
                     ->with('patients')
                     ->get();
                 $appointmentPatients = $appointments->sum(function($appointment) {

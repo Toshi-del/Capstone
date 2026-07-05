@@ -372,7 +372,7 @@ class AdminController extends Controller
         // Annual Physical: Doctor submits with status 'sent_to_admin' -> Admin can send to company/patient
         // OPD: Doctor submits with status 'sent_to_admin' -> Admin can send to patient
         
-        $preEmploymentResults = \App\Models\PreEmploymentExamination::whereIn('status', ['sent_to_admin', 'sent_to_company', 'sent_to_patient', 'sent_to_both', 'Approved'])->get();
+        $preEmploymentResults = \App\Models\PreEmploymentExamination::whereIn('status', ['sent_to_admin', 'sent_to_company', 'sent_to_patient', 'sent_to_both', 'Approved', 'completed', 'pending', 'draft', 'created'])->get();
         $annualPhysicalResults = \App\Models\AnnualPhysicalExamination::whereIn('status', ['sent_to_admin', 'sent_to_company', 'sent_to_patient', 'sent_to_both'])->get();
         $opdResults = \App\Models\OpdExamination::whereIn('status', ['sent_to_admin', 'sent_to_patient', 'completed', 'approved'])->get();
         

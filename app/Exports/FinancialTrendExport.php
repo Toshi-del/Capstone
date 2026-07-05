@@ -34,15 +34,22 @@ class FinancialTrendExport
             $preEmploymentRevenue = (float) (PreEmploymentRecord::whereBetween('created_at', [$start, $end])
                 ->sum('total_price') ?? 0);
             
-            // Appointment revenue with patient counts
+            // Appointment revenue with patient counts (only approved)
             $appointments = Appointment::whereBetween('created_at', [$start, $end])
-                ->with(['patients', 'medicalTest'])
+                ->where('status', 'approved')
+                ->with('patients')
                 ->get();
             $appointmentRevenue = 0;
             foreach($appointments as $appointment) {
                 $patientCount = $appointment->patients->count();
-                $testPrice = $appointment->medicalTest ? $appointment->medicalTest->price : 0;
-                $appointmentRevenue += ($testPrice * $patientCount);
+                if ($patientCount > 0) {
+                    // Get all selected tests for this appointment
+                    $selectedTests = $appointment->selected_tests;
+                    if ($selectedTests && $selectedTests->count() > 0) {
+                        $appointmentTestPrice = $selectedTests->sum('price');
+                        $appointmentRevenue += ($appointmentTestPrice * $patientCount);
+                    }
+                }
             }
             
             $totalRevenue = $preEmploymentRevenue + $appointmentRevenue;

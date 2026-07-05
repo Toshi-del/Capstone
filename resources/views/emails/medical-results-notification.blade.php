@@ -131,7 +131,7 @@
             
             <div class="info-box">
                 <p><strong>📱 Access Your Results:</strong></p>
-                <p>To view your complete medical results and create your patient account (if you haven't already), please click the button below:</p>
+                <p>Your complete medical results are attached to this email as a PDF document. You can also view your results online and create your patient account (if you haven't already) by clicking the button below:</p>
             </div>
             
             <div style="text-align: center;">
@@ -143,6 +143,7 @@
             <div class="info-box">
                 <p><strong>🔒 Important Notes:</strong></p>
                 <ul>
+                    <li>Your complete medical results are attached as a PDF document to this email</li>
                     <li>This link will help you create a secure patient account if you don't have one</li>
                     <li>Your medical information is confidential and secure</li>
                     <li>You can access your results anytime after registration</li>

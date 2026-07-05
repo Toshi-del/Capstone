@@ -9,17 +9,66 @@
     $since = \Carbon\Carbon::now()->subDays(90);
     $testsEarly = \App\Models\MedicalTest::select('id','name','medical_test_category_id','price')->with('category')->get();
     $testData = $testsEarly->map(function($t) use ($since){
-        // Pre-employment data
-        $perCount = \App\Models\PreEmploymentRecord::where('medical_test_id', $t->id)
-            ->where('created_at','>=',$since)
-            ->count();
-        $perRevenue = (float) (\App\Models\PreEmploymentRecord::where('medical_test_id', $t->id)
-            ->where('created_at','>=',$since)
-            ->sum('total_price') ?? 0);
+        // Pre-employment data - collect unique records to avoid double-counting
+        $uniqueRecordIds = collect();
+        $totalRevenue = 0;
         
-        // Appointment data with patient counts
-        $appointments = \App\Models\Appointment::where('medical_test_id', $t->id)
+        // 1. Collect from primary medical_test_id field
+        $primaryRecords = \App\Models\PreEmploymentRecord::where('medical_test_id', $t->id)
             ->where('created_at','>=',$since)
+            ->get();
+        foreach($primaryRecords as $record) {
+            $uniqueRecordIds->push($record->id);
+            $totalRevenue += (float) $record->total_price;
+        }
+        
+        // 2. Collect from pivot table relationships (avoid duplicates)
+        $pivotRecords = \App\Models\PreEmploymentRecord::whereHas('medicalTests', function($query) use ($t) {
+                $query->where('medical_test_id', $t->id);
+            })
+            ->where('created_at','>=',$since)
+            ->get();
+        foreach($pivotRecords as $record) {
+            if (!$uniqueRecordIds->contains($record->id)) {
+                $uniqueRecordIds->push($record->id);
+                $totalRevenue += (float) $record->total_price;
+            }
+        }
+        
+        // 3. Collect from other_exams JSON field (avoid duplicates)
+        $jsonRecords = \App\Models\PreEmploymentRecord::where('created_at','>=',$since)
+            ->whereNotNull('other_exams')
+            ->where('other_exams', '!=', '')
+            ->get()
+            ->filter(function($record) use ($t) {
+                $parsedExams = $record->parsed_other_exams;
+                if (!$parsedExams || !isset($parsedExams['selected_tests'])) {
+                    return false;
+                }
+                foreach ($parsedExams['selected_tests'] as $test) {
+                    if (isset($test['test_id']) && $test['test_id'] == $t->id) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        foreach($jsonRecords as $record) {
+            if (!$uniqueRecordIds->contains($record->id)) {
+                $uniqueRecordIds->push($record->id);
+                $totalRevenue += (float) $record->total_price;
+            }
+        }
+        
+        $perCount = $uniqueRecordIds->unique()->count();
+        $perRevenue = $totalRevenue;
+        
+        // Appointment data with patient counts (only approved)
+        $appointments = \App\Models\Appointment::where(function($query) use ($t) {
+                $query->where('medical_test_id', $t->id)
+                      ->orWhereRaw('JSON_CONTAINS(medical_test_id, ?)', [json_encode($t->id)]);
+            })
+            ->where('created_at','>=',$since)
+            ->where('status', 'approved')
             ->with('patients')
             ->get();
         $apptCount = $appointments->count();
@@ -51,6 +100,18 @@
       ->sortByDesc('count')
       ->take(10)
       ->values();
+      
+    // Calculate unique appointment patients (not per test, but total unique patients)
+    $uniqueAppointmentPatients = \App\Models\Appointment::where('created_at', '>=', $since)
+        ->where('status', 'approved')
+        ->with('patients')
+        ->get()
+        ->sum(function($appointment) {
+            return $appointment->patients->count();
+        });
+        
+    // Calculate OPD examinations count (90 days)
+    $opdExaminationsCount = \App\Models\OpdExamination::where('created_at', '>=', $since)->count();
 @endphp
 
 <div class="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-indigo-50 p-6">
@@ -74,12 +135,12 @@
                         <div class="text-xs text-gray-500">Pre-Employment (90d)</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-2xl font-bold text-blue-600">{{ $testData->sum('total_patients') }}</div>
-                        <div class="text-xs text-gray-500">Total Patients (90d)</div>
+                        <div class="text-2xl font-bold text-blue-600">{{ $uniqueAppointmentPatients }}</div>
+                        <div class="text-xs text-gray-500">Appointment Patients (90d)</div>
                     </div>
                     <div class="text-center">
-                        <div class="text-2xl font-bold text-orange-600">{{ $testData->sum('appointment_count') }}</div>
-                        <div class="text-xs text-gray-500">Appointments (90d)</div>
+                        <div class="text-2xl font-bold text-orange-600">{{ $opdExaminationsCount }}</div>
+                        <div class="text-xs text-gray-500">OPD Examinations (90d)</div>
                     </div>
                     <div class="text-center">
                         <div class="text-2xl font-bold text-green-600">₱{{ number_format($testData->sum('revenue'), 0) }}</div>
@@ -354,9 +415,10 @@
             ->whereNotNull('medical_test_id')
             ->count();
         
-        // Get appointments with patient counts for more accurate test volume
+        // Get appointments with patient counts for more accurate test volume (only approved)
         $appointments = \App\Models\Appointment::whereBetween('created_at', [$start, $end])
             ->whereNotNull('medical_test_id')
+            ->where('status', 'approved')
             ->with('patients')
             ->get();
         $apptPatients = $appointments->sum(function($appointment) {
@@ -375,9 +437,13 @@
                 ->where('created_at', '>=', $since)
                 ->count();
             
-            // Get appointments with patient counts for this category
-            $appointments = \App\Models\Appointment::where('medical_test_categories_id', $cat->id)
+            // Get appointments with patient counts for this category (only approved)
+            $appointments = \App\Models\Appointment::where(function($query) use ($cat) {
+                    $query->where('medical_test_categories_id', $cat->id)
+                          ->orWhereRaw('JSON_CONTAINS(medical_test_categories_id, ?)', [json_encode($cat->id)]);
+                })
                 ->where('created_at', '>=', $since)
+                ->where('status', 'approved')
                 ->with('patients')
                 ->get();
             $apptPatients = $appointments->sum(function($appointment) {
@@ -399,20 +465,49 @@
         $end = $m->copy()->endOfMonth();
         $perTotal = (float) (\App\Models\PreEmploymentRecord::whereBetween('created_at', [$start, $end])->sum('total_price') ?? 0);
         
-        // Calculate appointment revenue with patient counts
+        // Calculate appointment revenue with patient counts (only approved)
         $appointments = \App\Models\Appointment::whereBetween('created_at', [$start, $end])
-            ->with(['patients', 'medicalTest'])
+            ->where('status', 'approved')
+            ->with('patients')
             ->get();
         $apptTotal = 0;
         foreach($appointments as $appointment) {
             $patientCount = $appointment->patients->count();
-            $testPrice = $appointment->medicalTest ? $appointment->medicalTest->price : 0;
-            $apptTotal += ($testPrice * $patientCount);
+            if ($patientCount > 0) {
+                // Get all selected tests for this appointment
+                $selectedTests = $appointment->selected_tests;
+                if ($selectedTests && $selectedTests->count() > 0) {
+                    $appointmentTestPrice = $selectedTests->sum('price');
+                    $apptTotal += ($appointmentTestPrice * $patientCount);
+                }
+            }
+        }
+        
+        // Debug: Log appointment revenue calculation for current month
+        if ($m->isCurrentMonth()) {
+            \Log::info('Financial Trend Debug - Current Month', [
+                'month' => $m->format('M Y'),
+                'approved_appointments_count' => $appointments->count(),
+                'pre_employment_revenue' => $perTotal,
+                'appointment_revenue' => $apptTotal,
+                'total_revenue' => $perTotal + $apptTotal
+            ]);
         }
         
         return round($perTotal + $apptTotal, 2);
     });
 
+    // Debug: Check if there are any approved appointments at all
+    $totalApprovedAppointments = \App\Models\Appointment::where('status', 'approved')->count();
+    $totalApprovedWithPatients = \App\Models\Appointment::where('status', 'approved')
+        ->whereHas('patients')
+        ->count();
+    \Log::info('Analytics Debug - Approved Appointments', [
+        'total_approved_appointments' => $totalApprovedAppointments,
+        'approved_with_patients' => $totalApprovedWithPatients,
+        'monthly_revenue_data' => $monthlyRevenue->toArray()
+    ]);
+    
     // This testData is already calculated above with enhanced patient count logic
     // No need to recalculate - the $testData variable is already available
 @endphp
@@ -463,7 +558,7 @@
             data: {
                 labels: topCatLabels,
                 datasets: [{
-                    label: 'Count',
+                    label: 'Medical Tests (Pre-Employment + Annual Physical)',
                     data: topCatCounts,
                     backgroundColor: [primary.trim(), success.trim(), warning.trim(), '#6f42c1', '#20c997', '#fd7e14']
                 }]

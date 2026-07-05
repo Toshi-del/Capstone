@@ -35,9 +35,10 @@ class TestVolumeExport
                 ->whereNotNull('medical_test_id')
                 ->count();
             
-            // Appointment patient count
+            // Appointment patient count (only approved)
             $appointments = Appointment::whereBetween('created_at', [$start, $end])
                 ->whereNotNull('medical_test_id')
+                ->where('status', 'approved')
                 ->with('patients')
                 ->get();
             $appointmentPatients = $appointments->sum(function($appointment) {

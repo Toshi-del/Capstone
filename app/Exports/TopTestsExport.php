@@ -31,17 +31,66 @@ class TopTestsExport
             ->get();
             
         $testData = $testsEarly->map(function($test) use ($since) {
-            // Pre-employment data
-            $preEmploymentCount = PreEmploymentRecord::where('medical_test_id', $test->id)
-                ->where('created_at', '>=', $since)
-                ->count();
-            $preEmploymentRevenue = (float) (PreEmploymentRecord::where('medical_test_id', $test->id)
-                ->where('created_at', '>=', $since)
-                ->sum('total_price') ?? 0);
+            // Pre-employment data - collect unique records to avoid double-counting
+            $uniqueRecordIds = collect();
+            $totalRevenue = 0;
             
-            // Appointment data with patient counts
-            $appointments = Appointment::where('medical_test_id', $test->id)
+            // 1. Collect from primary medical_test_id field
+            $primaryRecords = PreEmploymentRecord::where('medical_test_id', $test->id)
                 ->where('created_at', '>=', $since)
+                ->get();
+            foreach($primaryRecords as $record) {
+                $uniqueRecordIds->push($record->id);
+                $totalRevenue += (float) $record->total_price;
+            }
+            
+            // 2. Collect from pivot table relationships (avoid duplicates)
+            $pivotRecords = PreEmploymentRecord::whereHas('medicalTests', function($query) use ($test) {
+                    $query->where('medical_test_id', $test->id);
+                })
+                ->where('created_at', '>=', $since)
+                ->get();
+            foreach($pivotRecords as $record) {
+                if (!$uniqueRecordIds->contains($record->id)) {
+                    $uniqueRecordIds->push($record->id);
+                    $totalRevenue += (float) $record->total_price;
+                }
+            }
+            
+            // 3. Collect from other_exams JSON field (avoid duplicates)
+            $jsonRecords = PreEmploymentRecord::where('created_at', '>=', $since)
+                ->whereNotNull('other_exams')
+                ->where('other_exams', '!=', '')
+                ->get()
+                ->filter(function($record) use ($test) {
+                    $parsedExams = $record->parsed_other_exams;
+                    if (!$parsedExams || !isset($parsedExams['selected_tests'])) {
+                        return false;
+                    }
+                    foreach ($parsedExams['selected_tests'] as $testData) {
+                        if (isset($testData['test_id']) && $testData['test_id'] == $test->id) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+            foreach($jsonRecords as $record) {
+                if (!$uniqueRecordIds->contains($record->id)) {
+                    $uniqueRecordIds->push($record->id);
+                    $totalRevenue += (float) $record->total_price;
+                }
+            }
+            
+            $preEmploymentCount = $uniqueRecordIds->unique()->count();
+            $preEmploymentRevenue = $totalRevenue;
+            
+            // Appointment data with patient counts (only approved)
+            $appointments = Appointment::where(function($query) use ($test) {
+                    $query->where('medical_test_id', $test->id)
+                          ->orWhereRaw('JSON_CONTAINS(medical_test_id, ?)', [json_encode($test->id)]);
+                })
+                ->where('created_at', '>=', $since)
+                ->where('status', 'approved')
                 ->with('patients')
                 ->get();
             $appointmentCount = $appointments->count();

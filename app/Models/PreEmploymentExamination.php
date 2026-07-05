@@ -169,13 +169,17 @@ class PreEmploymentExamination extends Model
             'fecalysis' => 'Fecalysis',
             'sodium' => 'Sodium',
             'potassium' => 'Potassium',
+            'chloride' => 'Chloride',
+            'magnesium' => 'Magnesium',
             'fbs' => 'FBS',
             'bua' => 'BUA',
             'cholesterol' => 'Cholesterol',
             'creatinine' => 'Creatinine',
+            'sgot/_ast' => 'SGOT/AST',
             'hbsag_screening' => 'HBsAg Screening',
             'hepa_a_igg_igm' => 'HEPA A IGG & IGM',
-            'xray' => 'Chest X-Ray' // Note: chest_x_ray becomes 'xray' in the view
+            'chest_x_ray' => 'Chest X-Ray', // Field name as used in Laboratory Test Results section
+            'xray' => 'Chest X-Ray' // Legacy field name for backward compatibility
         ];
         
         foreach($labTestFields as $fieldKey => $displayName) {
@@ -183,6 +187,9 @@ class PreEmploymentExamination extends Model
             
             // Check lab_findings first (for radiologist data like chest x-ray)
             if ($fieldKey === 'xray') {
+                $result = data_get($labFindings, 'chest_xray.result', '');
+            } elseif ($fieldKey === 'chest_x_ray') {
+                // Handle chest_x_ray field name from Laboratory Test Results section
                 $result = data_get($labFindings, 'chest_xray.result', '');
             } else {
                 $result = data_get($labFindings, $fieldKey . '.result', '');
@@ -253,6 +260,9 @@ class PreEmploymentExamination extends Model
             
             // Check lab_findings first (for radiologist data like chest x-ray)
             if ($fieldKey === 'xray') {
+                $result = data_get($labFindings, 'chest_xray.result', '');
+            } elseif ($fieldKey === 'chest_x_ray') {
+                // Handle chest_x_ray field name from Laboratory Test Results section
                 $result = data_get($labFindings, 'chest_xray.result', '');
             } else {
                 $result = data_get($labFindings, $fieldKey . '.result', '');
